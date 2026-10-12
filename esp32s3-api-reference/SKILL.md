@@ -1,96 +1,123 @@
 ---
 name: esp32s3-api-reference
-version: 2.0.0
-target: esp32s3
-idf_versions: v5.2 – v6.x (stable ปัจจุบัน = v6.1)
-description: >-
-  Exact ESP-IDF API signatures สำหรับ ESP32-S3 — ครบ 25 ไฟล์: peripheral 12 (gpio uart spi i2c
-  ledc gptimer adc rmt i2s pcnt mcpwm twai) + protocol 4 (wifi http_client mqtt http_server)
-  + storage 2 (nvs fatfs_sdmmc) + system 4 (esp_timer sleep heap ota) + dsp 1 (esp_dsp)
-  พร้อม version markers และ required includes — Anti-Hallucination layer
-  โหลดก่อนเขียน/ตรวจโค้ด C ที่เรียก ESP-IDF API ทุกครั้ง
+version: 2.7.2
+description: |
+  Anti-hallucination API reference สำหรับ ESP32-S3 + ESP-IDF v5.2–v6.1 — ใช้เมื่อ: (1) เขียน/แก้/review โค้ด C ที่เรียก driver, WiFi/BT, HTTP, MQTT, NVS/SD, OTA, sleep หรือ DSP บน ESP32-S3 (2) ต้องยืนยัน function signature, struct field, หรือ header ที่ต้อง include สำหรับ IDF เวอร์ชันใดเวอร์ชันหนึ่ง (3) ตรวจโค้ดก่อนส่งมอบว่าไม่โดน กับดัก hallucination ที่พบบ่อยบนชิป/เวอร์ชันนี้
 ---
 
-# ESP32-S3 API Reference — Anti-Hallucination Layer
+# ESP32-S3 API Reference — Router (v2.7.2)
+
+> ไฟล์นี้คือ **Router** — อ่านไฟล์นี้ทุกครั้งก่อนทำงาน แล้ว**โหลดเฉพาะ** reference ที่งานต้องใช้ตาม §2
+> ประวัติการแก้ไข → `CHANGELOG.md` · prompt ทดสอบ skill → `SMOKE-TESTS.md` · checklist กับดัก → `HALLUCINATION-HOT-LIST.md`
 
 ## 1. เมื่อไรต้องใช้ skill นี้
 - กำลังเขียน/แก้/review โค้ด C ที่เรียก driver, WiFi/BT, HTTP (client/server), MQTT, NVS/SD, OTA, sleep หรือ DSP บน ESP32-S3
 - ต้องยืนยัน function signature, struct field, หรือ header ที่ต้อง include สำหรับ IDF เวอร์ชันไหน
 
-## 2. กฎเหล็ก 7 ข้อ
+## 2. Dependency Map — งานนี้ต้องโหลดอะไรบ้าง
+**กติกา:** โหลดเฉพาะ reference ที่ตรงกับงาน (ห้ามโหลดทั้งหมด) แล้วรัน checklist เฉพาะกลุ่ม API นั้นจาก `HALLUCINATION-HOT-LIST.md`
+
+| ประเภทงาน | Reference ที่โหลด | Checklist ที่รัน |
+|---|---|---|
+| ดิจิทัล IO / ปุ่ม / ISR / คงค่าขาข้าม sleep | `peripherals/gpio.md` | GPIO |
+| Serial / โมเด็ม AT / VFS | `peripherals/uart.md` | UART |
+| Bus I2C (sensor, EEPROM, จอ) | `peripherals/i2c.md` | I2C |
+| Bus SPI / จอ / flash ภายนอก | `peripherals/spi.md` | SPI |
+| PWM / LED / servo พื้นฐาน / แทน DAC | `peripherals/ledc.md` | LEDC |
+| Timer ฮาร์ดแวร์ / periodic แม่นยำ | `peripherals/gptimer.md` | GPTIMER |
+| อ่านแรงดัน / sensor อนาล็อก | `peripherals/adc.md` | ADC |
+| IR / NeoPixel / สัญญาณพัลส์ละเอียด | `peripherals/rmt.md` | RMT |
+| เสียง / ไมค์ / ลำโพง / PDM | `peripherals/i2s.md` | I2S |
+| Encoder / นับพัลส์ | `peripherals/pcnt.md` | PCNT |
+| มอเตอร์ / H-bridge / dead-time | `peripherals/mcpwm.md` | MCPWM |
+| CAN bus | `peripherals/twai.md` | TWAI |
+| WiFi เชื่อมต่อ | `protocols/wifi.md` | WIFI (+ NVS) |
+| เรียก REST API / ดาวน์โหลด | `protocols/http_client.md` | HTTP |
+| MQTT | `protocols/mqtt.md` | MQTT |
+| เปิด web server | `protocols/http_server.md` | HTTPD |
+| เก็บค่า/settings ถาวร | `storage/nvs.md` | NVS |
+| SD card / ไฟล์ | `storage/fatfs_sdmmc.md` | SD |
+| callback เป็นรอบเวลา / one-shot | `system/esp_timer.md` | ESP_TIMER |
+| ประหยัดพลังงาน / deep-light sleep | `system/sleep.md` | SLEEP (+ GPIO ถ้าเกี่ยว wakeup) |
+| จอง memory / DMA buffer / PSRAM | `system/heap.md` | HEAP (+ `spi.md` §4 ถ้างาน DMA ของ SPI) |
+| OTA / firmware update | `system/ota.md` | OTA |
+| FFT / ตัวกรอง / คณิต | `dsp/esp_dsp.md` | DSP |
+
+**คอมโบที่พบบ่อย:** audio → `i2s.md` + `heap.md` (DMA) · WiFi+MQTT → `wifi.md` + `mqtt.md` + `nvs.md` · ปลุกด้วยปุ่มจาก deep sleep → `sleep.md` + `gpio.md`
+
+## 3. กฎเหล็ก 7 ข้อ
 1. **เปิดไฟล์ reference ของ peripheral นั้นก่อนเขียนเสมอ** — ห้ามเขียน API จากความจำลอย ๆ
 2. **คัดลอก signature ตรงตาม reference** — ห้ามเปลี่ยนชนิดพารามิเตอร์ ห้ามเติมพารามิเตอร์ที่ไม่มีจริง
 3. **API ที่ไม่มีใน reference = ต้อง verify ก่อนใช้** กับ header จริง (`components/esp_driver_*/include/`) หรือ docs.espressif.com — แล้วเขียนผลเพิ่มกลับเข้า reference
-4. **เช็ค ESP-IDF เวอร์ชันของโปรเจกต์ก่อน** (`idf.py --version`) แล้วจับคู่กับ §3 Version Decision Table
+4. **เช็ค ESP-IDF เวอร์ชันของโปรเจกต์ก่อน** (`idf.py --version`) แล้วจับคู่กับ §4 Version Decision Table
 5. **โค้ดที่ส่งมอบต้องมี `#include` ครบ** และจัดการ error ด้วย `esp_err_t` / `ESP_ERROR_CHECK` ทุกจุด
-6. **ก่อนส่งโค้ดทุกครั้ง → รันผ่าน `HALLUCINATION-HOT-LIST.md` (61 ข้อ — ไฟล์แยกที่รากของ skill)** ให้ครบทุกหมวดที่เกี่ยวข้อง
-7. **เจอป้าย ⚠️ = จุดที่ API เปลี่ยนระหว่างเวอร์ชัน** — ต้องเปิด header ของเวอร์ชันที่ใช้ยืนยันก่อน (รายการรวมอยู่ที่ §8)
+6. **ก่อนส่งโค้ดทุกครั้ง → รัน `HALLUCINATION-HOT-LIST.md` เฉพาะกลุ่ม API ที่โค้ดใช้** (เลือกกลุ่มจาก §2) — เริ่มตรวจข้อ `[SILENT]` ก่อนเสมอเพราะตรวจจากอาการไม่ได้
+7. **เจอป้าย ⚠️ = จุดที่ API เปลี่ยนระหว่างเวอร์ชัน** — ต้องเปิด header ของเวอร์ชันที่ใช้ยืนยันก่อน (คิวรวมอยู่ที่ §8 และท้ายไฟล์ reference แต่ละไฟล์)
 
-## 3. Version Decision Table
+## 4. Version Decision Table
 
 | หัวข้อ | v4.x | v5.0–v5.1 | v5.2–v5.3 | v5.4–v5.5 | v6.x (stable = v6.1) |
 |---|---|---|---|---|---|
-| I2C driver | legacy `driver/i2c.h` | legacy (เริ่ม deprecate) | **new `driver/i2c_master.h`** (pullup = field ตรง `.enable_internal_pullup`) | pullup ย้ายเข้า `.flags.enable_internal_pullup` ⚠️; v5.5: port = -1 auto | legacy = **EOL** (ลบใน v7) ใช้ new เท่านั้น |
+| I2C driver | legacy `driver/i2c.h` | legacy (เริ่ม deprecate) | **new `driver/i2c_master.h`** — pullup อยู่ใน `.flags` **ตั้งแต่ v5.2** | **slave redesign ⚠️** (callbacks + `i2c_slave_write`, ลบ `i2c_slave_receive`/`*_ram`); `i2c_port = -1` auto ยืนยัน v5.4.1+; `multi_buffer_transmit` มีแล้ว | + `execute_defined_operations` (v5.5+); legacy = **EOL** (ลบใน v7); NACK → **`ESP_ERR_INVALID_RESPONSE`** ⚠️ |
 | โครงสร้าง component | `components/driver` | เดิม | v5.3 เริ่มแยก `esp_driver_*` | แยกแล้ว | `esp_driver_uart/i2c/rmt/...` (header `driver/*.h` ยังชื่อเดิม) |
 | `gpio_pad_select_gpio()` | ใช้ได้ | deprecated | deprecated | deprecated | **removed** → `gpio_reset_pin()` |
-| `uart_read_bytes()` timeout | ticks | ticks | ticks | ช่วงปลาย v5 เปลี่ยนเป็น ms ⚠️ | **ms (`int`)** |
+| `uart_read_bytes()` timeout | ticks (`TickType_t`) | ticks | ticks | ticks (ถึง v5.5 ยัง `TickType_t`) | **ยังเป็น ticks** — เปลี่ยนชนิดเป็น `uint32_t` เท่านั้น (ชื่อพารามิเตอร์ยัง `ticks_to_wait`) |
+| UART macros / headers | ใช้ได้ | ใช้ได้ | ใช้ได้ | ใช้ได้ | **removed v6.0**: `UART_FIFO_LEN` → `UART_HW_FIFO_LEN`; `soc/uart_channel.h` → `soc/uart_pins.h` |
+| `uart_set_pin()` | 5 args ตรง ๆ | เดิม | เดิม | เดิม | 5 args ยังใช้ได้ (wrapper) + `_uart_set_pin6` ฟอร์ม 7 args (DTR/DSR) |
 | NVS `nvs_handle_t` | `uint32_t` | `uint32_t` | `uint32_t` | **opaque pointer** | opaque pointer |
-| ADC/Timer/RMT/I2S/MCPWM/PCNT | legacy | **new drivers** มาแล้ว | new | new | legacy ถูกลบ |
+| ADC/RMT/I2S/MCPWM/PCNT | legacy | **new drivers** มาแล้ว | new | new | legacy ถูกลบ |
+| GPTimer (TIMG) | legacy `driver/timer.h` | new `driver/gptimer.h` | new — v5.3+ ต้อง `REQUIRES esp_driver_gptimer` | เดิม | legacy **ลบใน v6**; `set/get_raw_count` = `uint64_t` ทุกเวอร์ชัน; ETM = header แยก `gptimer_etm.h` |
+| esp_timer (SYSTIMER) | ใช้ได้ | ใช้ได้ | ใช้ได้ — ต้อง `REQUIRES esp_timer` | เดิม | เดิม; **v6.1+** เพิ่มกลุ่ม `_at` + `stop_blocking`/`is_active`/`get_period`/`get_expiry_time`/`get_next_alarm_for_wake_up`; **ไม่มี `ESP_TIMER_EXT`**; `ESP_TIMER_ISR` ต้องเปิด `CONFIG_ESP_TIMER_SUPPORTS_ISR_DISPATCH_METHOD` |
 | ADC atten (บน S3) | — | `ADC_ATTEN_DB_12` | เดิม | เดิม | เดิม (ระวัง `DB_11` จากโค้ด ESP32 รุ่นแรก) |
 | MQTT config struct | flat (`.host`/`.port`) | **nested** (`.broker.address.uri`) | nested | nested | nested |
 | ext1 wakeup | — | `esp_sleep_enable_ext1_wakeup` | เดิม | + variant ใหม่ `_io` | ตัวเดิม **deprecated ตั้งแต่ v6.0** → `esp_sleep_enable_ext1_wakeup_io()` |
 | sleep cause type | — | `esp_sleep_wakeup_cause_t` | เดิม | เดิม | rename → **`esp_sleep_source_t`** (ชื่อ enum เดิม) |
+| wakeup cause getter | `esp_sleep_get_wakeup_cause()` | เดิม | เดิม | เดิม | **deprecated ตั้งแต่ v6.0** → `esp_sleep_get_wakeup_causes()` (bitmap หลาย source พร้อมกัน) ⚠️ |
 | UART wake threshold | — | `uart_set_wakeup_threshold()` | เดิม | เดิม | + ชุดใหม่ `uart_wakeup_setup()` + `uart_wakeup_cfg_t` ⚠️ |
 | TWAI | classic driver | classic | classic | classic | v6.1: + **node-handle driver** (`twai_new_node`/`twai_node_transmit`) ⚠️ เลือกชุดให้ถูก |
 | MCPWM dead-time | — | new driver (pipeline) | + API dead-time เฉพาะ ⚠️ | เดิม | เดิม — ตรวจ `mcpwm_gen.h` ของเวอร์ชันนั้น |
+| SPI / LEDC / I2S CMakeLists | `driver` | `driver` | v5.3+ แยก `esp_driver_spi/ledc/i2s` | แยกแล้ว | legacy `driver` deprecated — ระบุ `esp_driver_*` ตรง (ดู reference แต่ละตัว) |
+| I2S driver | legacy `driver/i2s.h` | legacy (deprecate v5.0) | + channel API ใหม่ | channel API | **legacy ลบใน v6.0** → `i2s_std/pdm/tdm.h` |
+| LEDC | ใช้ได้ | ใช้ได้ | ใช้ได้ | ใช้ได้ | `ledc_timer_set` ลบ / `ledc_isr_register`+`intr_type` deprecated / macro clock เปลี่ยน (ดู ledc.md §9) |
+| SPI master | ใช้ได้ | ใช้ได้ | ใช้ได้ | ใช้ได้ | signature คงเดิม; `CONFIG_SPI_MASTER_IN_IRAM` ซ่อน + ต้อง `CONFIG_FREERTOS_IN_IRAM` (ดู spi.md §9) |
 
-## 4. Hallucination Hot List (ไฟล์แยก)
-
-**ดูที่ `HALLUCINATION-HOT-LIST.md` (รากของ skill) — 61 ข้อ แบ่ง 6 หมวด:**
-
-| หมวด | ข้อ | ครอบเรื่อง |
-|---|---|---|
-| A | 1–16 | GPIO / UART / SPI / I2C |
-| B | 17–24 และ 6–15 (WiFi/HTTP/NVS) | WiFi init, pointer returns, NVS commit |
-| C | 17–24 | LEDC / gptimer / ADC / MQTT |
-| D | 25–34 | esp_timer / RMT / I2S |
-| E | 35–49 | Sleep / Heap / DSP / HTTPD / PCNT |
-| F | 50–61 | MCPWM / TWAI / SD / OTA |
-
-## 5. File Index (25 ไฟล์)
+## 5. File Index
 ```
 esp32s3-api-reference/
-├── SKILL.md                    ← ไฟล์นี้ (v2.0)
-├── HALLUCINATION-HOT-LIST.md   ← 61 ข้อ (ไฟล์แยก)
-└── references/
+├── SKILL.md                    ← ไฟล์นี้ — Router (v2.7.1)
+├── HALLUCINATION-HOT-LIST.md   ← Checklist Edition v3.1 (105 ข้อ · 23 กลุ่ม API)
+├── CHANGELOG.md                ← ประวัติการแก้ไขรายไฟล์ (แยกจาก SKILL.md ตั้งแต่ v2.7.0)
+├── SMOKE-TESTS.md              ← prompt ทดสอบ skill (ย้ายจาก SKILL.md §9 เดิม)
+└── references/                 (23 ไฟล์)
     ├── peripherals/            (12 ไฟล์)
-    │   ├── gpio.md             ดิจิทัล IO, ISR, strapping, GPIO map เต็ม
-    │   ├── uart.md             3 ports, ticks→ms marker, VFS
-    │   ├── spi.md              SPI master + GDMA, 64-byte no-DMA limit
-    │   ├── i2c.md              new master driver (+ legacy สำหรับอ่านโค้ดเก่า)
-    │   ├── ledc.md             8ch/4timer, fade, low-speed only บน S3
-    │   ├── gptimer.md          4× 54-bit TIMG + state machine enable→start
-    │   ├── adc.md              2×12-bit, ADC1 กับ WiFi, curve fitting
-    │   ├── rmt.md              8ch TX0-3/RX4-7, encoder, 48 words/ch, +led_strip
-    │   ├── i2s.md              new channel driver, std/pdm/tdm, PDM=I2S0
-    │   ├── pcnt.md             4 units×2ch, glitch filter, encoder 4x
-    │   ├── mcpwm.md            2 groups×3 timers/operators, pipeline, capture
-    │   └── twai.md             CAN 2.0, ticks timeout, bus-off recovery
+    │   ├── gpio.md             (v2.2) ดิจิทัล IO, ISR, strapping, GPIO map, hold/wakeup, wake-cause
+    │   ├── uart.md             (v2.1) 3 ports, ticks ทุกเวอร์ชัน, v6.0 breaking, event queue, VFS, wakeup
+    │   ├── spi.md              (v2.1) SPI master + GDMA, 64-byte per-transaction, clock per path, DMA rules
+    │   ├── i2c.md              (v2.1) new master + slave redesign, `.flags` ทุกเวอร์ชัน, probe, NACK v6
+    │   ├── ledc.md             (v2.1) 8ch/4timer, fade, low-speed only, hpoint, clock global, duty/fade workflow
+    │   ├── gptimer.md          (v2.0) 4× 54-bit TIMG + state machine enable→start
+    │   ├── adc.md              (v2.0.1) 2×12-bit, GPIO↔CH mapping , ADC1 กับ WiFi,curve fitting (chan=reserved), DMA=ADC1 only
+    │   ├── rmt.md              (v1.1) แปลงโครงสร้างแล้วรอreview 8ch TX0-3/RX4-7, encoder, 48 words/ch, +led_strip
+    │   ├── i2s.md              (v2.1) channel driver, std/pdm/tdm, PDM=I2S0, DMA sizing
+    │   ├── pcnt.md             (v1.1) แปลงโครงสร้างแล้วรอreview 4 units×2ch, glitch filter, encoder 4x
+    │   ├── mcpwm.md            (v1.1) แปลงโครงสร้างแล้วรอreview 2 groups×3 timers/operators, pipeline, capture
+    │   └── twai.md             (v1.1) แปลงโครงสร้างแล้วรอreview CAN 2.0, ticks timeout, bus-off recovery
     ├── protocols/              (4 ไฟล์)
-    │   ├── wifi.md             STA + event + ลำดับ init 9 ขั้น
-    │   ├── http_client.md      perform/streaming 2 patterns
-    │   ├── mqtt.md             nested config, %.*s, chunked data
-    │   └── http_server.md      httpd, serialized handlers, wildcard
+    │   ├── wifi.md             (v1.1) แปลงโครงสร้างแล้วรอreview STA + event + ลำดับ init 9 ขั้น
+    │   ├── http_client.md      (v1.xperform/streaming 2 patterns
+    │   ├── mqtt.md             (v1.1) แปลงโครงสร้างแล้วรอreview nested config, %.*s, chunked data
+    │   └── http_server.md      (v1.1) แปลงโครงสร้างแล้วรอreview httpd, serialized handlers, wildcard
     ├── storage/                (2 ไฟล์)
-    │   ├── nvs.md              key-value, two-call get, commit
-    │   └── fatfs_sdmmc.md      SDMMC/SDSPI + VFS + FATFS
+    │   ├── nvs.md              (v1.1) แปลงโครงสร้างแล้วรอreview key-value, two-call get, commit
+    │   └── fatfs_sdmmc.md      (v1.1) แปลงโครงสร้างแล้วรอreview SDMMC/SDSPI + VFS + FATFS
     ├── system/                 (4 ไฟล์)
-    │   ├── esp_timer.md        µs timer + ตารางเทียบ vs gptimer vs FreeRTOS
-    │   ├── sleep.md            (v1.1 — แก้ตาม review) wakeup table TRM, ext1 _io, UART edges
-    │   ├── heap.md             heap_caps + MALLOC_CAP_DMA/SPIRAM
-    │   └── ota.md              esp_https_ota + rollback state machine
+    │   ├── esp_timer.md        (v2.0) µs timer + ตารางเทียบ vs gptimer vs FreeRTOS
+    │   ├── sleep.md            (v2.2) — wakeup table TRM, ext1 _io, UART edges, auto light sleep
+    │   ├── heap.md             (v1.1) แปลงโครงสร้างแล้วรอreview heap_caps + MALLOC_CAP_DMA/SPIRAM
+    │   └── ota.md              (v1.1) แปลงโครงสร้างแล้วรอreview esp_https_ota + rollback state machine
     └── dsp/
-        └── esp_dsp.md          dsps_* (PIE-optimized), FFT pipeline
+        └── esp_dsp.md          (v1.1) แปลงโครงสร้างแล้วรอreview dsps_* (PIE-optimized), FFT pipeline
+
 ```
 
 ## 6. การใช้ร่วมกับ skill อื่น
@@ -102,50 +129,17 @@ esp32s3-api-reference/
 - `skills/esp32s3-pie-simd/` → instruction ระดับ asm (esp_dsp.md คือชั้น library ที่ใช้ PIE)
 
 ## 7. วิธีขยาย skill
-1. สร้าง `references/<หมวด>/<ชื่อ>.md` ตาม template เดียวกัน: **Include → Hardware Facts → Structs → Signatures → กับดัก → ตัวอย่างมินิมัล**
+1. สร้าง `references/<หมวด>/<ชื่อ>.md` ตาม template: **§0 TL;DR → §1 Include & CMakeLists → §2 Hardware Facts → §3–§6 API/Structs/Signatures → §7 กับดัก (ผูกรหัส Hot-List ท้ายบรรทัด) → §8 ตัวอย่างมินิมัล → §9 v6.x Notes → §10 จุดที่ต้องตรวจซ้ำกับ header จริง**
 2. คัดลอก signature จาก header จริงของเวอร์ชันที่รองรับ + ใส่ version marker ทุกจุดที่ต่างกัน
-3. เพิ่มข้อใหม่เข้า `HALLUCINATION-HOT-LIST.md` (ต่อเลขข้อล่าสุด) — อย่าเก็บใน SKILL.md
-4. อัปเดต File Index (§5) + Changelog (§10) ของไฟล์นี้
+3. เพิ่มข้อใหม่เข้า `HALLUCINATION-HOT-LIST.md` **ใต้กลุ่ม API ที่ตรง** (รหัสต่อจากล่าสุด เช่น SPI-13) พร้อม tag `[COMPILE]`/`[RUNTIME]`/`[SILENT]` — อย่าเก็บใน SKILL.md
+4. อัปเดต File Index (§5) ของไฟล์นี้ + เพิ่ม entry ใน `CHANGELOG.md`
 5. Roadmap ที่เหลือ: tsens, usb-otg, esp-tls, bt/nimble, websocket, esp_eth (W5500), spiffs, esp_partition, esp_pm, ULP-RISC-V, esp-dl inference, https_server, ETM
 
-## 8. ⚠️ จุดที่ต้องตรวจซ้ำกับ header จริง (ป้ายใน reference)
-- `uart_read_bytes` timeout (ticks vs ms) ตาม IDF เวอร์ชันที่ใช้
-- MCPWM dead-time API + enum ชุด `start_stop`; ชื่อ field ย่อยบางตัวของ i2s/rmt structs
+## ## 8. ⚠️ คิวตรวจซ้ำกับ header จริง (ของไฟล์ที่ยังไม่รีวิว — ไฟล์ reviewed แล้วดู §9/§10 ท้ายไฟล์แต่ละตัว)
+- MCPWM dead-time API + enum ชุด `start_stop`; ชื่อ field ย่อยบางตัวของ rmt structs
 - `ESP_TIMER_EXT` / `esp_timer_*_at` (IDF รุ่นใหม่)
 - esp-dsp: biquad/matrix signatures + ชื่อ Kconfig ขนาด FFT สูงสุด
 - TWAI node-handle driver ของ v6.1 (`twai_new_node`/`twai_node_transmit`)
 - PCNT พฤติกรรมชน limit (accum_count)
 - `esp_https_ota` fields เพิ่มของ v5.3+ (partial_http_download)
 - SDHOST Slot 0 บน S3 (`sdmmc_host.h`)
-
-## 9. Smoke Tests (ตรวจว่า skill ทำงานจริง — ใช้เป็น prompt ทดสอบ)
-| #   | Prompt ทดสอบ                            | ผลที่ต้องได้                                           |
-| --- | --------------------------------------- | ------------------------------------------------------ |
-| 1   | อ่าน WHO_AM_I reg 0x68 ผ่าน I2C บน v5.4 | `i2c_master.h` + handle + timeout `100` ms             |
-| 2   | ปุ่ม GPIO4 falling edge + ISR           | `void isr(void*)` + `install_isr_service` + `1ULL<<4`  |
-| 3   | เซฟ string ลง NVS แล้วอ่านกลับ          | `nvs_commit` + two-call `nvs_get_str` + key ≤ 15       |
-| 4   | หายใจ LED ด้วย fade                     | `fade_func_install` + `LEDC_LOW_SPEED_MODE`            |
-| 5   | timer 1 วินาที periodic                 | gptimer: `enable`→`start` + `auto_reload`              |
-| 6   | อ่านแรงดัน GPIO4                        | `ADC_CHANNEL_3` + curve fitting (ไม่ใช่ ch 4)          |
-| 7   | MQTT subscribe topic                    | subscribe ใน `MQTT_EVENT_CONNECTED` + `%.*s`           |
-| 8   | callback ทุก 1 วินาที esp_timer         | `1000000` µs + `void cb(void*)`                        |
-| 9   | ส่ง NEC IR code                         | `rmt_enable` + `wait_all_done` + duration = tick       |
-| 10  | เล่นเสียง 44.1 kHz                      | std mode + `enable` ก่อน `write` + timeout ms          |
-| 11  | deep sleep ปลุกทุก 5 นาที + ปุ่ม        | ext1 + `RTC_DATA_ATTR` + `300ULL*1000000ULL`           |
-| 12  | จอง SPI DMA buffer 4KB                  | `heap_caps_malloc(4096, MALLOC_CAP_DMA)`               |
-| 13  | FFT 1024 หา magnitude                   | init + `bit_rev` + `cplx2reC` + `float[2048]`          |
-| 14  | web server รับ POST ตอบ JSON            | recv loop จน content_len + `HTTPD_TYPE_JSON`           |
-| 15  | encoder 4x                              | channel เดียว edge+level + glitch filter               |
-| 16  | servo 50 Hz                             | `connect_timer` + enum `MCPWM_TIMER_START_NO_STOP`     |
-| 17  | ส่ง/รับ CAN 500k                        | `twai_start` + `pdMS_TO_TICKS` (ticks!)                |
-| 18  | บันทึกไฟล์ลง SD                         | mount ก่อน `fopen` + `max_files` + 4BIT flag           |
-| 19  | OTA + rollback                          | `mark_app_valid_cancel_rollback` + partition table OTA |
-
-## 10. Changelog
-- **v2.0 (ปัจจุบัน):** Hot List แยกออกเป็น `HALLUCINATION-HOT-LIST.md` (58→61 ข้อ) · Version Decision Table เพิ่ม ext1/_io, sleep type rename, UART wake v6, TWAI node-handle v6.1, MCPWM dead-time · เพิ่ม §8 จุดตรวจซ้ำ + §9 Smoke Tests รวม 19 ข้อ
-- **v1.1:** `sleep.md` แก้ตาม external review + verify (`esp_deep_sleep_start` = void, PM 3 ขั้น, ext1 bitmask, UART edges, ULL overflow) — Hot List ใส่เพิ่มข้อ 39-41
-- **v1.0:** รอบ 1 (gpio/uart/spi/i2c/wifi/http_client/nvs) → รอบ 2 (ledc/gptimer/adc/mqtt) → รอบ 3 (esp_timer/rmt/i2s) → รอบ 4 (sleep/heap/esp_dsp/http_server/pcnt) → รอบ 5 (mcpwm/twai/fatfs_sdmmc/ota) = ครบ 25 ไฟล์
-
-
-
-
